@@ -1,11 +1,17 @@
-import { useEffect,  useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './SeatReservation.css';
-import { apiFetch, getAuth } from './auth';
+import { getAuth } from './auth';
+import { createReservation, fetchSeatStatus, subscribeSeatChanges } from './seatApi';
 
-const MAX_BOOKING_HOURS = 4;
-const OPEN_TIME = 9 * 60;
-const CLOSE_TIME = 22 * 60;
 const FLOORS = [1, 2, 3];
+
+// 좌석 표시 상태 (US-04 AC2). 키는 서버의 display_status 값.
+const SEAT_STATES = {
+  AVAILABLE: { label: '예약 가능', className: 'is-available' },
+  IN_USE: { label: '사용 중', className: 'is-in-use' },
+  MINE: { label: '내 예약', className: 'is-mine' },
+  RESERVED: { label: '예약됨', className: 'is-reserved' },
+};
 
 const toMinutes = (time) => {
   const [hour, minute] = time.split(':').map(Number);
@@ -23,17 +29,13 @@ tomorrow.setDate(tomorrow.getDate() + 1);
 const DEFAULT_DATE = toLocalDate(tomorrow);
 const TODAY = toLocalDate(new Date());
 
-const TIME_OPTIONS = Array.from(
-  { length: (CLOSE_TIME - OPEN_TIME) / 30 + 1 },
-  (_, index) => toTime(OPEN_TIME + index * 30)
-);
-
-async function readJson(response) {
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || body.message || `API 오류 (${response.status})`);
-  }
-  return response.json();
+// 운영 시간·예약 단위는 서버 정책(policy)에서 받아 선택지를 만든다.
+function buildTimeOptions(policy) {
+  if (!policy) return null;
+  const open = toMinutes(policy.open_time);
+  const close = toMinutes(policy.close_time);
+  const step = policy.slot_minutes;
+  return Array.from({ length: Math.floor((close - open) / step) + 1 }, (_, index) => toTime(open + index * step));
 }
 
 function displayDate(value) {
@@ -43,47 +45,54 @@ function displayDate(value) {
 }
 
 export default function SeatReservation({ headerActions }) {
+  const loggedIn = !!getAuth();
   const [floor, setFloor] = useState(1);
   const [date, setDate] = useState(DEFAULT_DATE);
   const [startTime, setStartTime] = useState('10:00');
   const [endTime, setEndTime] = useState('12:00');
   const [selectedSeatId, setSelectedSeatId] = useState(null);
   const [seatsWithStatus, setSeatsWithStatus] = useState([]);
+  const [policy, setPolicy] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
 
   const duration = toMinutes(endTime) - toMinutes(startTime);
+  const maxHours = policy?.max_reservation_hours;
   const timeError =
     duration <= 0
       ? '종료 시간은 시작 시간보다 늦어야 합니다.'
-      : duration > MAX_BOOKING_HOURS * 60
-        ? `한 번에 최대 ${MAX_BOOKING_HOURS}시간까지 예약할 수 있습니다.`
+      : maxHours && duration > maxHours * 60
+        ? `한 번에 최대 ${maxHours}시간까지 예약할 수 있습니다.`
         : '';
-
+  const rangeError =
+    policy && date && (date < policy.bookable_from || date > policy.bookable_until)
+      ? `예약은 ${displayDate(policy.bookable_from)} ~ ${displayDate(policy.bookable_until)}(오늘~+${policy.max_advance_days}일)만 가능합니다.`
+      : '';
   const isInPast = !date || new Date(`${date}T${startTime}:00`).getTime() <= Date.now();
 
-  const fetchSeats = getAuth() ? apiFetch : fetch;
+  // 조회 조건과 무관한 실시간 구독에서 최신 조건을 읽기 위한 ref
+  const viewRef = useRef({ floor, date });
+  viewRef.current = { floor, date };
 
   useEffect(() => {
-    if (!date || timeError) {
-        setLoading(false);
-        return;
+    if (!loggedIn || !date || duration <= 0) {
+      setLoading(false);
+      return undefined;
     }
     const controller = new AbortController();
-    const params = new URLSearchParams({ floor, date, start: startTime, end: endTime });
     setLoading(true);
-    fetchSeats(`/api/seats?${params}`, { signal: controller.signal })
-      .then(readJson)
+    fetchSeatStatus({ floor, date, start: startTime, end: endTime }, controller.signal)
       .then((data) => {
-        setSeatsWithStatus(data);
+        setPolicy(data.policy);
+        setSeatsWithStatus(data.seats);
         setSelectedSeatId((prev) => {
-            if(prev == null) return null;
-            const seat = data.find(s => s.seat_id == prev);
-            return seat?.display_status === 'AVAILABLE' ? prev : null;
+          if (prev == null) return null;
+          const seat = data.seats.find((s) => s.seat_id === prev);
+          return seat?.display_status === 'AVAILABLE' ? prev : null;
         });
-    })
+      })
       .catch((error) => {
         if (error.name !== 'AbortError') {
           setSeatsWithStatus([]);
@@ -92,54 +101,48 @@ export default function SeatReservation({ headerActions }) {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [floor, date, startTime, endTime, refreshKey]);
+  }, [loggedIn, floor, date, startTime, endTime, duration, refreshKey]);
 
-  const counts = {
-    AVAILABLE: seatsWithStatus.filter((seat) => seat.display_status === 'AVAILABLE').length,
-    RESERVED: seatsWithStatus.filter((seat) => seat.display_status === 'RESERVED').length,
-    MINE: seatsWithStatus.filter((seat) => seat.display_status === 'MINE').length,
-  };
+  // 다른 학생의 예약 등으로 좌석 상태가 바뀌면 보고 있는 층·날짜일 때만 다시 조회한다.
+  useEffect(() => {
+    if (!loggedIn) return undefined;
+    const refresh = () => setRefreshKey((n) => n + 1);
+    return subscribeSeatChanges((change) => {
+      const view = viewRef.current;
+      if (change.floor === view.floor && change.date === view.date) refresh();
+    }, { onReconnect: refresh });
+  }, [loggedIn]);
+
+  const counts = Object.fromEntries(
+    Object.keys(SEAT_STATES).map((state) => [state, seatsWithStatus.filter((seat) => seat.display_status === state).length])
+  );
+
+  const timeOptions = buildTimeOptions(policy);
+  const startOptions = timeOptions ? timeOptions.slice(0, -1) : [startTime];
+  const endOptions = timeOptions ? timeOptions.slice(1) : [endTime];
 
   const selectedSeat = seatsWithStatus.find((seat) => seat.seat_id === selectedSeatId);
-  const canReserve = !loading && !saving && !!selectedSeat && !!date && date >= TODAY && !timeError && !isInPast && selectedSeat.display_status === 'AVAILABLE';
+  const canReserve = loggedIn && !loading && !saving && !!selectedSeat && !!date && !!policy
+    && !timeError && !rangeError && !isInPast && selectedSeat.display_status === 'AVAILABLE';
 
-const updateFilter = (setter, value, resetSeat = false) => {
-  setter(value);
-
-  if (resetSeat) {
-    setSelectedSeatId(null);
-  }
-
-  setNotice('');
-};
+  const updateFilter = (setter, value, resetSeat = false) => {
+    setter(value);
+    if (resetSeat) setSelectedSeatId(null);
+    setNotice('');
+  };
 
   async function reserveSeat() {
-    if (!getAuth()) {
-      setNotice('로그인 후 예약할 수 있습니다.');
-      return;
-    }
     if (!canReserve) return;
     setSaving(true);
     try {
-      const response = await apiFetch('/api/reservations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seat_id: selectedSeatId,
-          date,
-          start_time: startTime,
-          end_time: endTime,
-        }),
-      });
-      await readJson(response);
+      await createReservation({ seatId: selectedSeatId, date, start: startTime, end: endTime });
       setSelectedSeatId(null);
-      setNotice(`${floor}층 ${selectedSeat.seat_number}번 좌석 예약이 DB에 저장되었습니다.`);
-      setRefreshKey((n) => n + 1);
+      setNotice(`${floor}층 ${selectedSeat.seat_number}번 좌석 예약이 완료되었습니다.`);
     } catch (error) {
       setNotice(`예약 실패: ${error.message}`);
-      setRefreshKey((n) => n + 1);
     } finally {
       setSaving(false);
+      setRefreshKey((n) => n + 1);
     }
   }
 
@@ -188,26 +191,30 @@ const updateFilter = (setter, value, resetSeat = false) => {
             </div>
 
             <div className="library-legend" aria-label="좌석 상태 범례">
-              <span><i className="library-dot is-available" />예약 가능</span>
-              <span><i className="library-dot is-reserved" />예약됨</span>
-              <span><i className="library-dot is-mine" />내 예약</span>
+              {Object.entries(SEAT_STATES).map(([state, { label, className }]) => (
+                <span key={state}><i className={`library-dot ${className}`} />{label}</span>
+              ))}
             </div>
 
+            {!loggedIn && (
+              <p className="library-small-note" role="status">로그인한 학생만 좌석 현황을 조회할 수 있습니다. 먼저 로그인해 주세요.</p>
+            )}
             {loading && <p className="library-small-note">좌석 정보를 조회하는 중...</p>}
 
             <div className="library-room">
               <div className="library-seat-grid">
                 {seatsWithStatus.map((seat) => {
                   const isSelected = selectedSeatId === seat.seat_id;
-                  const stateText = seat.display_status === 'MINE' ? '내 예약' : seat.display_status === 'RESERVED' ? '예약됨' : '예약 가능';
+                  const state = SEAT_STATES[seat.display_status] ?? SEAT_STATES.RESERVED;
+                  const occupiedByOther = seat.display_status === 'RESERVED' || seat.display_status === 'IN_USE';
                   return (
                     <button
                       type="button"
                       key={seat.seat_id}
-                      className={`library-seat is-${seat.display_status.toLowerCase()} ${isSelected ? 'is-selected' : ''}`}
-                      aria-label={`${floor}층 ${seat.seat_number}번 좌석, ${stateText}`}
+                      className={`library-seat ${state.className} ${isSelected ? 'is-selected' : ''}`}
+                      aria-label={`${floor}층 ${seat.seat_number}번 좌석, ${state.label}`}
                       aria-pressed={isSelected}
-                      disabled={seat.display_status === 'RESERVED'}
+                      disabled={occupiedByOther}
                       onClick={() => {
                         if (seat.display_status === 'MINE') {
                           setNotice('내 예약 좌석입니다. 내 예약 목록에서 취소할 수 있습니다.');
@@ -220,7 +227,7 @@ const updateFilter = (setter, value, resetSeat = false) => {
                     >
                       <span className="library-seat-desk" aria-hidden="true" />
                       <strong>{String(seat.seat_number).padStart(2, '0')}</strong>
-                      <small>{isSelected ? '선택됨' : stateText}</small>
+                      <small>{isSelected ? '선택됨' : state.label}</small>
                     </button>
                   );
                 })}
@@ -228,9 +235,9 @@ const updateFilter = (setter, value, resetSeat = false) => {
             </div>
 
             <div className="library-seat-stats">
-              <span><b>{counts.AVAILABLE}</b> 예약 가능</span>
-              <span><b>{counts.RESERVED}</b> 예약됨</span>
-              <span><b>{counts.MINE}</b> 내 예약</span>
+              {Object.entries(SEAT_STATES).map(([state, { label }]) => (
+                <span key={state}><b>{counts[state]}</b> {label}</span>
+              ))}
             </div>
           </section>
 
@@ -238,11 +245,13 @@ const updateFilter = (setter, value, resetSeat = false) => {
             <section className="library-card library-booking-panel" aria-labelledby="booking-title">
               <div className="library-card-heading">
                 <div className="library-booking-header">
-                    <h2 id="booking-title">예약 정보</h2>
+                  <h2 id="booking-title">예약 정보</h2>
+                  {policy && (
                     <div className="library-policy">
-                        ⏱ <span>1회 최대 <strong>{MAX_BOOKING_HOURS}시간</strong> 예약</span>
+                      ⏱ <span>1회 최대 <strong>{policy.max_reservation_hours}시간</strong> 예약</span>
                     </div>
-                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="library-form-field">
@@ -250,7 +259,8 @@ const updateFilter = (setter, value, resetSeat = false) => {
                 <input
                   id="library-date"
                   type="date"
-                  min={TODAY}
+                  min={policy?.bookable_from ?? TODAY}
+                  max={policy?.bookable_until}
                   value={date}
                   onChange={(event) => updateFilter(setDate, event.target.value)}
                 />
@@ -260,13 +270,13 @@ const updateFilter = (setter, value, resetSeat = false) => {
                 <div className="library-form-field">
                   <label htmlFor="library-start">시작 시간</label>
                   <select id="library-start" value={startTime} onChange={(event) => updateFilter(setStartTime, event.target.value)}>
-                    {TIME_OPTIONS.slice(0, -1).map((time) => <option key={time} value={time}>{time}</option>)}
+                    {startOptions.map((time) => <option key={time} value={time}>{time}</option>)}
                   </select>
                 </div>
                 <div className="library-form-field">
                   <label htmlFor="library-end">종료 시간</label>
                   <select id="library-end" value={endTime} onChange={(event) => updateFilter(setEndTime, event.target.value)}>
-                    {TIME_OPTIONS.slice(1).map((time) => <option key={time} value={time}>{time}</option>)}
+                    {endOptions.map((time) => <option key={time} value={time}>{time}</option>)}
                   </select>
                 </div>
               </div>
@@ -276,7 +286,8 @@ const updateFilter = (setter, value, resetSeat = false) => {
                 <strong>{duration > 0 ? `${duration / 60}시간` : '확인 필요'}</strong>
               </div>
               {timeError ? <p className="library-field-error" role="alert">{timeError}</p> : null}
-              {!timeError && isInPast ? <p className="library-field-error">이미 지난 시간은 예약할 수 없습니다.</p> : null}
+              {!timeError && rangeError ? <p className="library-field-error" role="alert">{rangeError}</p> : null}
+              {!timeError && !rangeError && isInPast ? <p className="library-field-error">이미 지난 시간은 예약할 수 없습니다.</p> : null}
 
               <div className="library-selection-summary">
                 <span>선택한 좌석</span>
@@ -285,10 +296,14 @@ const updateFilter = (setter, value, resetSeat = false) => {
               </div>
 
               <button type="button" className="library-primary-button" onClick={reserveSeat} disabled={!canReserve}>
-                {selectedSeat ? '이 좌석 예약하기' : '좌석을 선택해 주세요'}
+                {!loggedIn ? '로그인 후 예약할 수 있습니다' : selectedSeat ? '이 좌석 예약하기' : '좌석을 선택해 주세요'}
               </button>
               {notice && <p className="library-notice" role="status">{notice}</p>}
-              <p className="library-help">운영 시간 09:00~22:00 · 30분 단위 선택</p>
+              {policy && (
+                <p className="library-help">
+                  운영 시간 {policy.open_time}~{policy.close_time} · {policy.slot_minutes}분 단위 · 오늘부터 {policy.max_advance_days}일 후까지 예약 가능
+                </p>
+              )}
             </section>
           </aside>
         </div>

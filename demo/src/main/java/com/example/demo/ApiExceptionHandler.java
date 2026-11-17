@@ -2,6 +2,8 @@ package com.example.demo;
 
 import java.util.Map;
 
+import com.example.demo.common.BusinessException;
+
 import org.springframework.web.server.ResponseStatusException;
 
 import org.springframework.http.ResponseEntity;
@@ -23,5 +25,12 @@ public class ApiExceptionHandler {
                         ? e.getReason()
                         : "요청 처리에 실패했습니다."
                 ));
+    }
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<Map<String, String>> handleBusiness(BusinessException e) {
+        return ResponseEntity
+                .status(e.getStatus())
+                .body(Map.of("message", e.getMessage()));
     }
 }
