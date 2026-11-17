@@ -111,17 +111,34 @@ public class SignupController {
 
     @PostMapping("/signup")
     public ResponseEntity<?> signup(@RequestBody SignupRequest req) {
-
+        String password = req.password();
         if (req.name() == null || req.name().isBlank()
             || req.studentid() == null 
             || !req.studentid().matches("^\\d{9}$")) {
-            return ResponseEntity.badRequest().body(Map.of("message", "입력값을 확인하세요."));
+            return ResponseEntity.badRequest().body(Map.of("message", " 이름을 입력하세요."));
         }
         if (req.email() == null || !req.email().matches("^[a-z0-9_-]+(\\.[a-z0-9_-]+)*@(?:\\w+\\.)+\\w+$")){
             return ResponseEntity.badRequest().body(Map.of("message", "이메일 입력값을 확인하세요."));
         }
-        if (req.password() == null || !req.password().matches("^(?=.*[0-9])(?=.*[a-zA-Z])(?=.*[!@#$%^&*()-+=]).{8,}$")){
-            return ResponseEntity.badRequest().body(Map.of("message", "비밀번호 입력값을 확인하세요."));
+        if (password == null || password.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "비밀번호를 입력하세요."));
+        }
+        if (password.length() < 8) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "비밀번호는 8자 이상이어야 합니다."));
+        }
+        if (!password.matches(".*[0-9].*")) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "비밀번호에 숫자가 포함되어 있어야 합니다."));
+        }
+        if (!password.matches(".*[a-zA-Z].*")) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "비밀번호에 영문자가 포함되어 있어야 합니다."));
+        }
+        if (!password.matches(".*[!@#$%^&*()+=-].*")) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "비밀번호에 특수문자가 포함되어 있어야 합니다."));
         }
 
         String email = req.email().trim().toLowerCase(Locale.ROOT);
