@@ -23,7 +23,7 @@ public class SecurityConfig {
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 // SSE(/api/seats/stream)의 비동기 재디스패치. 최초 요청에서 이미 인증을 통과했다.
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/signup", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/signup", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/resend-verification").permitAll()
                 // US-04 AC1: 좌석 조회(/api/seats, /api/seats/stream)는 로그인한 사용자만 → anyRequest().authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/auth/verify-email").permitAll()
                 .anyRequest().authenticated())

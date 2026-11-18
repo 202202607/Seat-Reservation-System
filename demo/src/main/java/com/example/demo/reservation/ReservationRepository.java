@@ -9,7 +9,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 /**
- * reservations 테이블 접근. 모든 SQL 은 파라미터 바인딩(?)만 사용한다.
+ * reservations 테이블 접근.
  * 두 구간 [s1, e1), [s2, e2) 는 s1 < e2 AND e1 > s2 일 때 겹친다.
  */
 @Repository

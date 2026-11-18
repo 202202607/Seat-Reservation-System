@@ -92,6 +92,8 @@ interface MemberRepository extends JpaRepository<Member, Long> {
     boolean existsByEmail(String email);
     boolean existsByStudentid(String studentid);
     Optional<Member> findByVerificationToken(String token);
+
+    Optional<Member> findByEmail(String email);
 }
 
 // 회원가입 API
@@ -164,7 +166,7 @@ public class SignupController {
         verificationService.sendVerificationEmail(member);
 
         return ResponseEntity.status(201)
-                .body(Map.of("message", "회원가입 성공"));
+                .body(Map.of("message", "회원가입 성공 - 이메일 인증을 완료하셔야 로그인할 수 있습니다."));
     }
 
     public record SignupRequest(

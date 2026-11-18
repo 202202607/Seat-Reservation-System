@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.springframework.context.ApplicationEventPublisher;
+import com.example.demo.seat.SeatStatusChangedEvent;
+
 /** 기존 예약 컨트롤러를 수정하지 않고 추가하는 전체 이력 API. */
 @RestController
 @RequestMapping("/api/reservations/history")
@@ -23,7 +26,9 @@ public class ReservationHistoryController {
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     private final JdbcTemplate jdbc;
 
-    public ReservationHistoryController(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final ApplicationEventPublisher events;
+
+    public ReservationHistoryController(JdbcTemplate jdbc, ApplicationEventPublisher events) { this.jdbc = jdbc; this.events = events;}
 
     public record HistoryItem(long id, long seat_id, Integer floor, Integer seat_number,
                               String room_name, String date, String start_time, String end_time,
@@ -60,18 +65,37 @@ public class ReservationHistoryController {
 
     @DeleteMapping("/{id}")
     @Transactional
-    public Map<String, String> cancel(@AuthenticationPrincipal Jwt user, @PathVariable long id) {
-        // 소유자·상태·시작시간을 같은 UPDATE에서 확인하여 중복 취소도 차단합니다.
+    public Map<String, String> cancel(
+            @AuthenticationPrincipal Jwt user,
+            @PathVariable long id) {
+        long userId = Long.parseLong(user.getSubject());
+        // 기존 예약 취소 로직
         int affected = jdbc.update("""
                 UPDATE reservations SET status = 'CANCELLED'
                 WHERE reservation_id = ? AND user_id = ? AND status = 'RESERVED'
-                  AND start_time > ?
-                """, id, Long.parseLong(user.getSubject()), Timestamp.valueOf(LocalDateTime.now(KOREA)));
+                AND start_time > ?
+                """, id, userId, Timestamp.valueOf(LocalDateTime.now(KOREA)));
         if (affected == 0) {
-            // 다른 회원의 예약 존재 여부를 노출하지 않습니다.
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "취소할 수 있는 본인 예약이 없습니다. 이미 취소되었거나 이용이 시작되었을 수 있습니다.");
         }
+        // 취소한 예약의 좌석 정보 조회
+        SeatStatusChangedEvent event = jdbc.queryForObject("""
+                SELECT r.seat_id, s.floor, r.start_time
+                FROM reservations r
+                JOIN seats s ON r.seat_id = s.seat_id
+                WHERE r.reservation_id = ? AND r.user_id = ?
+                """,
+                (rs, rowNum) -> new SeatStatusChangedEvent(
+                        rs.getLong("seat_id"),
+                        rs.getInt("floor"),
+                        rs.getTimestamp("start_time")
+                        .toLocalDateTime().toLocalDate()
+                ),
+                id, userId
+        );
+        // SSE 이벤트 발행
+        events.publishEvent(event);
         return Map.of("message", "예약이 취소되었습니다.");
     }
 

@@ -24,7 +24,6 @@ public class ReservationController {
         this.reservationService = reservationService;
     }
 
-    /** 요청 본문. 기존 프론트와 같은 snake_case 필드명을 유지한다. */
     public record CreateReservationRequest(Long seat_id, String date, String start_time, String end_time) {}
 
     public record ReservationView(long reservation_id, long seat_id, int floor, int seat_number,
