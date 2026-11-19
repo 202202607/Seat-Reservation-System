@@ -15,7 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * 회원가입 규칙 (US-01). 컨트롤러는 요청·응답 변환만 한다.
  * <ul>
- *   <li>학생: PENDING + ROLE_STUDENT 로 저장하고 인증 메일 발송 (AC1). 인증하면 ACTIVE (AC4).</li>
+ *   <li>학생: 학교 이메일(@o.cnu.ac.kr)만 허용. PENDING + ROLE_STUDENT 로 저장하고 인증 링크 메일 발송 (AC1). 인증하면 ACTIVE (AC4).</li>
  *   <li>관리자: 관리자 가입 코드가 맞으면 ACTIVE + ROLE_ADMIN 으로 저장 (AC5, 설계서 p.4 Core Flow 1).</li>
  *   <li>비밀번호는 8자 이상·영문·숫자·특수문자 포함 (AC2), BCrypt 해시로 저장 (AC5).</li>
  * </ul>
@@ -32,14 +32,18 @@ public class SignupService {
     private final EmailVerificationService verificationService;
     private final BCryptPasswordEncoder encoder;
     private final String adminSignupCode;
+    /** 학생 가입에 허용하는 학교 이메일 도메인 (US-01 "학교 이메일로 본인 인증"). 예: o.cnu.ac.kr */
+    private final String studentEmailDomain;
 
     public SignupService(MemberRepository repository, EmailVerificationService verificationService,
                          BCryptPasswordEncoder encoder,
-                         @Value("${app.admin.signup-code:}") String adminSignupCode) {
+                         @Value("${app.admin.signup-code:}") String adminSignupCode,
+                         @Value("${app.signup.student-email-domain:o.cnu.ac.kr}") String studentEmailDomain) {
         this.repository = repository;
         this.verificationService = verificationService;
         this.encoder = encoder;
         this.adminSignupCode = adminSignupCode == null ? "" : adminSignupCode.trim();
+        this.studentEmailDomain = studentEmailDomain.trim().toLowerCase(Locale.ROOT);
     }
 
     /** adminId·adminCode 는 관리자 가입일 때만 채운다. 학생 가입은 studentid 를 쓴다. */
@@ -74,6 +78,9 @@ public class SignupService {
         String email = req.email() == null ? "" : req.email().trim().toLowerCase(Locale.ROOT);
         if (!email.matches(EMAIL_PATTERN)) {
             throw badRequest("이메일 입력값을 확인하세요.");
+        }
+        if (!admin && !email.endsWith("@" + studentEmailDomain)) {
+            throw badRequest("학교 이메일(@" + studentEmailDomain + ")로만 가입할 수 있습니다.");
         }
         validatePassword(req.password());
 
