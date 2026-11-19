@@ -3,10 +3,13 @@ import { apiFetch } from './auth';
 import './ReservationHistory.css';
 
 const STATUS_LABELS = {
-  RESERVED: '예약 예정', IN_USE: '이용 중', COMPLETED: '이용 완료', CANCELLED: '취소',
+  RESERVED: '예약 예정', ONGOING: '이용 시간 중 · 체크인 미확인',
+  PAST: '지난 예약 · 체크인 미확인', CHECKED_IN: '체크인 완료',
+  CANCELLED: '취소', AUTO_CANCELLED: '자동 취소',
 };
 const STATUS_CLASS = {
-  RESERVED: 'reserved', IN_USE: 'in-use', COMPLETED: 'completed', CANCELLED: 'cancelled',
+  RESERVED: 'reserved', ONGOING: 'in-use', PAST: 'completed', CHECKED_IN: 'completed',
+  CANCELLED: 'cancelled', AUTO_CANCELLED: 'cancelled',
 };
 
 async function readJson(response) {
@@ -30,7 +33,7 @@ export default function ReservationHistory({ headerActions }) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
-    apiFetch('/api/reservations/history', { signal: controller.signal })
+    apiFetch('/api/reservations/my', { signal: controller.signal })
       .then(readJson)
       .then(data => {
         if (!Array.isArray(data)) throw new Error('예약 이력 응답 형식이 올바르지 않습니다.');
@@ -48,14 +51,15 @@ export default function ReservationHistory({ headerActions }) {
   }, []);
 
   const reservations = useMemo(() => items.map(item => {
-    if (!['RESERVED', 'IN_USE'].includes(item.status)) return item;
     const start = Date.parse(item.starts_at), end = Date.parse(item.ends_at);
-    const displayStatus = end <= now ? 'COMPLETED' : start <= now ? 'IN_USE' : 'RESERVED';
-    return { ...item, status: displayStatus, can_cancel: item.can_cancel && start > now };
+    const displayStatus = item.status === 'RESERVED'
+      ? end <= now ? 'PAST' : start <= now ? 'ONGOING' : 'RESERVED'
+      : item.status;
+    return { ...item, displayStatus, can_cancel: item.can_cancel && start > now };
   }), [items, now]);
 
   const filtered = useMemo(() => reservations
-    .filter(item => status === 'ALL' || item.status === status)
+    .filter(item => status === 'ALL' || item.displayStatus === status)
     .sort((a, b) => {
       const order = Date.parse(b.starts_at) - Date.parse(a.starts_at) || b.id - a.id;
       return sort === 'latest' ? order : -order;
@@ -66,7 +70,7 @@ export default function ReservationHistory({ headerActions }) {
     if (!window.confirm(`${item.date} ${item.start_time} 예약을 취소할까요?`)) return;
     setCancellingId(item.id); setActionError(''); setNotice('');
     try {
-      const result = await readJson(await apiFetch(`/api/reservations/history/${item.id}`, { method: 'DELETE' }));
+      const result = await readJson(await apiFetch(`/api/reservations/${item.id}/cancel`, { method: 'PATCH' }));
       setItems(current => current.map(value => value.id === item.id ? { ...value, status: 'CANCELLED', can_cancel: false } : value));
       setNotice(result.message || '예약이 취소되었습니다.');
     } catch (e) { setActionError(e.message); }
@@ -89,7 +93,7 @@ export default function ReservationHistory({ headerActions }) {
           <div className="rh-summary">
             <div><span>전체</span><strong>{reservations.length}</strong></div>
             {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <div key={value}><span>{label}</span><strong>{reservations.filter(item => item.status === value).length}</strong></div>
+              <div key={value}><span>{label}</span><strong>{reservations.filter(item => item.displayStatus === value).length}</strong></div>
             ))}
           </div>
           <div className="rh-controls">
@@ -111,8 +115,8 @@ export default function ReservationHistory({ headerActions }) {
             <p className="rh-empty">{items.length === 0 ? '아직 예약 이력이 없습니다.' : '선택한 상태의 예약이 없습니다.'}</p>
           ) : <div className="rh-list" aria-label="예약 목록">
             {filtered.map(item => <article key={item.id} className="rh-reservation">
-              <div className="rh-card-top"><span className={`rh-badge rh-${STATUS_CLASS[item.status] || 'unknown'}`}>
-                {STATUS_LABELS[item.status] || item.status || '알 수 없음'}
+              <div className="rh-card-top"><span className={`rh-badge rh-${STATUS_CLASS[item.displayStatus] || 'unknown'}`}>
+                {STATUS_LABELS[item.displayStatus] || item.displayStatus || '알 수 없음'}
               </span><span className="rh-id">예약 #{item.id}</span></div>
               <div className="rh-card-body">
                 <div><h3>{item.floor == null ? '좌석 정보 없음' : `${item.floor}층 ${item.seat_number}번 좌석`}</h3>

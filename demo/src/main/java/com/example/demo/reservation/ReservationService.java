@@ -8,6 +8,7 @@ import com.example.demo.seat.SeatRepository;
 import com.example.demo.seat.SeatStatusChangedEvent;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -60,5 +61,30 @@ public class ReservationService {
         long id = reservations.insertReserved(userId, seatId, slot);
         events.publishEvent(new SeatStatusChangedEvent(seatId, seat.floor(), slot.date()));
         return new ReservationResult(id, seatId, seat.floor(), seat.seatNumber(), slot, ReservationStatus.RESERVED);
+    }
+
+    public List<ReservationHistoryItem> getMyReservations(long userId) {
+        requireActiveStudent(userId);
+        return reservations.findHistory(userId, LocalDateTime.now(clock));
+    }
+
+    /** Current UI policy: a student may cancel a RESERVED booking strictly before its start. */
+    @Transactional
+    public void cancel(long userId, long reservationId) {
+        requireActiveStudent(userId);
+        var target = reservations.findCancellationTarget(reservationId, userId)
+                .orElseThrow(() -> BusinessException.notFound("본인 예약을 찾을 수 없습니다."));
+        if (reservations.cancelIfAllowed(reservationId, userId, LocalDateTime.now(clock)) != 1) {
+            throw BusinessException.conflict("이미 취소되었거나 이용이 시작되어 취소할 수 없습니다.");
+        }
+        if (target.floor() != null) {
+            events.publishEvent(new SeatStatusChangedEvent(target.seatId(), target.floor(), target.start().toLocalDate()));
+        }
+    }
+
+    private void requireActiveStudent(long userId) {
+        if (!reservations.isActiveStudent(userId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "활성 학생 계정만 이용할 수 있습니다.");
+        }
     }
 }
