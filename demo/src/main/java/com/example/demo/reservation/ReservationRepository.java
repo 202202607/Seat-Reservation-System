@@ -3,6 +3,9 @@ package com.example.demo.reservation;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.Optional;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -14,10 +17,65 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class ReservationRepository {
+    private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     private final JdbcTemplate jdbc;
 
     public ReservationRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    public record CancellationTarget(long seatId, Integer floor, LocalDateTime start) {}
+
+    public boolean isActiveStudent(long userId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM APP_MEMBERS
+                WHERE id = ? AND status = 'ACTIVE' AND role = 'ROLE_STUDENT'
+                """, Integer.class, userId);
+        return count != null && count == 1;
+    }
+
+    /** All stored states, including past and cancelled bookings; newest use time first. */
+    public List<ReservationHistoryItem> findHistory(long userId, LocalDateTime now) {
+        return jdbc.query("""
+                SELECT r.reservation_id, r.seat_id, r.start_time, r.end_time, r.status,
+                       r.cancelled_at, s.floor, s.seat_number, s.room_name
+                FROM reservations r LEFT JOIN seats s ON s.seat_id = r.seat_id
+                WHERE r.user_id = ?
+                ORDER BY r.start_time DESC, r.reservation_id DESC
+                """, (rs, row) -> {
+            LocalDateTime start = rs.getTimestamp("start_time").toLocalDateTime();
+            LocalDateTime end = rs.getTimestamp("end_time").toLocalDateTime();
+            String status = rs.getString("status");
+            Timestamp cancelled = rs.getTimestamp("cancelled_at");
+            return new ReservationHistoryItem(rs.getLong("reservation_id"), rs.getLong("seat_id"),
+                    rs.getObject("floor", Integer.class), rs.getObject("seat_number", Integer.class),
+                    rs.getString("room_name"), start.toLocalDate().toString(),
+                    start.format(HH_MM), end.format(HH_MM),
+                    start.atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString(),
+                    end.atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString(),
+                    status, "RESERVED".equals(status) && start.isAfter(now),
+                    cancelled == null ? null : cancelled.toLocalDateTime()
+                            .atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString());
+        }, userId);
+    }
+
+    public Optional<CancellationTarget> findCancellationTarget(long id, long userId) {
+        return jdbc.query("""
+                SELECT r.seat_id, s.floor, r.start_time FROM reservations r
+                LEFT JOIN seats s ON s.seat_id = r.seat_id
+                WHERE r.reservation_id = ? AND r.user_id = ?
+                """, (rs, row) -> new CancellationTarget(rs.getLong("seat_id"),
+                rs.getObject("floor", Integer.class), rs.getTimestamp("start_time").toLocalDateTime()),
+                id, userId).stream().findFirst();
+    }
+
+    /** The database checks owner, state and strict start boundary in one update. */
+    public int cancelIfAllowed(long id, long userId, LocalDateTime now) {
+        Timestamp at = Timestamp.valueOf(now);
+        return jdbc.update("""
+                UPDATE reservations SET status = 'CANCELLED', cancelled_at = ?, cancelled_by = 'STUDENT'
+                WHERE reservation_id = ? AND user_id = ? AND status = 'RESERVED' AND start_time > ?
+                """, at, id, userId, at);
     }
 
     /** 해당 층에서 시간대가 겹치는 RESERVED/CHECKED_IN 예약 목록 (US-04). */

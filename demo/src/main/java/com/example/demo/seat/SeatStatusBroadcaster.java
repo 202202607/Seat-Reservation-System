@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -41,7 +42,7 @@ public class SeatStatusBroadcaster {
     }
 
     /** 예약 트랜잭션이 커밋된 뒤에만 알린다 (롤백된 예약은 알리지 않음). */
-    @TransactionalEventListener(fallbackExecution = true)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSeatStatusChanged(SeatStatusChangedEvent event) {
         SeatChange change = new SeatChange(event.seatId(), event.floor(), event.date().toString());
         for (SseEmitter emitter : emitters) {
