@@ -31,7 +31,8 @@ public class AuthController {
     }
     @GetMapping("/me")
     public Map<String, Object> me(@AuthenticationPrincipal Jwt user) {
-        return Map.of("id", Long.parseLong(user.getSubject()));
+        return Map.of("id", Long.parseLong(user.getSubject()),
+                "role", user.getClaimAsString(JwtService.ROLE_CLAIM));
     }
 }
 

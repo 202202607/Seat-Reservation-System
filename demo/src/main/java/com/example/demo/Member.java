@@ -9,6 +9,11 @@ import java.util.UUID;
 @Entity
 @Table(name = "APP_MEMBERS")
 class Member {
+    static final String ROLE_STUDENT = "ROLE_STUDENT";
+    static final String ROLE_ADMIN = "ROLE_ADMIN";
+    static final String STATUS_PENDING = "PENDING";
+    static final String STATUS_ACTIVE = "ACTIVE";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -36,14 +41,34 @@ class Member {
 
     protected Member() {}
 
+    /** 학생 가입: PENDING + ROLE_STUDENT, 이메일 인증 후 ACTIVE (US-01 AC1, AC4). */
     public Member(String name, String studentid, String email, String passwordHash) {
         this.name = name;
         this.studentid = studentid;
         this.email = email;
         this.passwordHash = passwordHash;
-        this.status = "PENDING";
-        this.role = "ROLE_STUDENT";
+        this.status = STATUS_PENDING;
+        this.role = ROLE_STUDENT;
         issueVerificationToken();
+    }
+
+    /**
+     * 관리자 가입: 바로 ACTIVE + ROLE_ADMIN (US-01 AC5, 설계서 p.4 Core Flow 1 save(ACTIVE, ROLE_ADMIN)).
+     * 관리자 ID는 학번과 같은 로그인 식별자 열(studentid)에 저장한다.
+     */
+    static Member admin(String name, String adminId, String email, String passwordHash) {
+        Member member = new Member();
+        member.name = name;
+        member.studentid = adminId;
+        member.email = email;
+        member.passwordHash = passwordHash;
+        member.status = STATUS_ACTIVE;
+        member.role = ROLE_ADMIN;
+        return member;
+    }
+
+    public boolean isActive() {
+        return STATUS_ACTIVE.equals(status);
     }
 
     @Column(unique = true)
@@ -71,7 +96,7 @@ class Member {
     }
 
     public void activate() {
-        this.status = "ACTIVE";
+        this.status = STATUS_ACTIVE;
         this.verificationToken = null;
         this.verificationTokenExpiresAt = null;
     }
