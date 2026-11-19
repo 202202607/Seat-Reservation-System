@@ -1,5 +1,6 @@
 package com.example.demo.policy;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import org.springframework.stereotype.Service;
 
@@ -18,5 +19,10 @@ public class PolicyService {
 
     public ReservationPolicy getPolicy(LocalDate date) {
         return defaults.toPolicy();
+    }
+
+    /** 체크인 제한 시간. 예약 시작부터 이 시간 동안은 '체크인 대기' 상태로 본다. */
+    public Duration checkInWindow() {
+        return Duration.ofMinutes(defaults.checkInMinutes());
     }
 }

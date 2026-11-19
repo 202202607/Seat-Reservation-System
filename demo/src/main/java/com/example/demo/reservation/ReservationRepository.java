@@ -4,6 +4,7 @@ import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,8 +35,11 @@ public class ReservationRepository {
         return count != null && count == 1;
     }
 
-    /** All stored states, including past and cancelled bookings; newest use time first. */
-    public List<ReservationHistoryItem> findHistory(long userId, LocalDateTime now) {
+    /**
+     * All stored states, including past and cancelled bookings; newest use time first.
+     * RESERVED 예약은 시작 후 checkInWindow(체크인 대기)까지 취소할 수 있다 (US-09 AC1).
+     */
+    public List<ReservationHistoryItem> findHistory(long userId, LocalDateTime now, Duration checkInWindow) {
         return jdbc.query("""
                 SELECT r.reservation_id, r.seat_id, r.start_time, r.end_time, r.status,
                        r.cancelled_at, s.floor, s.seat_number, s.room_name
@@ -47,15 +51,18 @@ public class ReservationRepository {
             LocalDateTime end = rs.getTimestamp("end_time").toLocalDateTime();
             String status = rs.getString("status");
             Timestamp cancelled = rs.getTimestamp("cancelled_at");
+            LocalDateTime cancelUntil = start.plus(checkInWindow);
+            boolean reserved = "RESERVED".equals(status);
             return new ReservationHistoryItem(rs.getLong("reservation_id"), rs.getLong("seat_id"),
                     rs.getObject("floor", Integer.class), rs.getObject("seat_number", Integer.class),
                     rs.getString("room_name"), start.toLocalDate().toString(),
                     start.format(HH_MM), end.format(HH_MM),
                     start.atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString(),
                     end.atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString(),
-                    status, "RESERVED".equals(status) && start.isAfter(now),
+                    status, reserved && cancelUntil.isAfter(now),
                     cancelled == null ? null : cancelled.toLocalDateTime()
-                            .atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString());
+                            .atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString(),
+                    reserved ? cancelUntil.atZone(com.example.demo.common.TimeConfig.ZONE).toOffsetDateTime().toString() : null);
         }, userId);
     }
 
@@ -69,13 +76,15 @@ public class ReservationRepository {
                 id, userId).stream().findFirst();
     }
 
-    /** The database checks owner, state and strict start boundary in one update. */
-    public int cancelIfAllowed(long id, long userId, LocalDateTime now) {
-        Timestamp at = Timestamp.valueOf(now);
+    /**
+     * The database checks owner, state and the cancel deadline in one update.
+     * startedAfter = 지금 - 체크인 제한 시간. 시작 시각이 이보다 뒤면(= 아직 체크인 대기 이전/중이면) 취소한다.
+     */
+    public int cancelIfAllowed(long id, long userId, LocalDateTime now, LocalDateTime startedAfter) {
         return jdbc.update("""
                 UPDATE reservations SET status = 'CANCELLED', cancelled_at = ?, cancelled_by = 'STUDENT'
                 WHERE reservation_id = ? AND user_id = ? AND status = 'RESERVED' AND start_time > ?
-                """, at, id, userId, at);
+                """, Timestamp.valueOf(now), id, userId, Timestamp.valueOf(startedAfter));
     }
 
     /** 해당 층에서 시간대가 겹치는 RESERVED/CHECKED_IN 예약 목록 (US-04). */

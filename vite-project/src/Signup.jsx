@@ -133,11 +133,14 @@ export default function Signup({ onGoToLogin}) {
           />
         )}
 
+        {/* 학생은 학교 이메일(@o.cnu.ac.kr)로만 가입한다. 서버도 같은 규칙으로 거부한다 (US-01). */}
         <input
           type="email"
-          placeholder={isAdmin ? '이메일' : '학교 이메일'}
+          placeholder={isAdmin ? '이메일' : '학교 이메일 (예: 학번@o.cnu.ac.kr)'}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          pattern={isAdmin ? undefined : '.+@[oO]\\.[cC][nN][uU]\\.[aA][cC]\\.[kK][rR]'}
+          title={isAdmin ? undefined : '충남대학교 학교 이메일(@o.cnu.ac.kr)만 사용할 수 있습니다.'}
           required
         />
 

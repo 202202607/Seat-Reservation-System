@@ -7,6 +7,7 @@ import com.example.demo.seat.Seat;
 import com.example.demo.seat.SeatRepository;
 import com.example.demo.seat.SeatStatusChangedEvent;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.context.ApplicationEventPublisher;
@@ -65,17 +66,23 @@ public class ReservationService {
 
     public List<ReservationHistoryItem> getMyReservations(long userId) {
         requireActiveStudent(userId);
-        return reservations.findHistory(userId, LocalDateTime.now(clock));
+        return reservations.findHistory(userId, LocalDateTime.now(clock), policies.checkInWindow());
     }
 
-    /** Current UI policy: a student may cancel a RESERVED booking strictly before its start. */
+    /**
+     * US-09 AC1: '예약중(RESERVED)' 또는 '체크인 대기'(시작 후 체크인 제한 시간 이내, 미체크인)이면 취소할 수 있다.
+     * AC4: 체크인 완료·취소됨·노쇼(AUTO_CANCELLED)는 거부한다. 학생 취소는 노쇼 카운터를 바꾸지 않는다(AC2).
+     */
     @Transactional
     public void cancel(long userId, long reservationId) {
         requireActiveStudent(userId);
         var target = reservations.findCancellationTarget(reservationId, userId)
                 .orElseThrow(() -> BusinessException.notFound("본인 예약을 찾을 수 없습니다."));
-        if (reservations.cancelIfAllowed(reservationId, userId, LocalDateTime.now(clock)) != 1) {
-            throw BusinessException.conflict("이미 취소되었거나 이용이 시작되어 취소할 수 없습니다.");
+        LocalDateTime now = LocalDateTime.now(clock);
+        Duration window = policies.checkInWindow();
+        if (reservations.cancelIfAllowed(reservationId, userId, now, now.minus(window)) != 1) {
+            throw BusinessException.conflict("이미 취소·체크인되었거나 체크인 제한 시간(시작 후 "
+                    + window.toMinutes() + "분)이 지나 취소할 수 없습니다.");
         }
         if (target.floor() != null) {
             events.publishEvent(new SeatStatusChangedEvent(target.seatId(), target.floor(), target.start().toLocalDate()));

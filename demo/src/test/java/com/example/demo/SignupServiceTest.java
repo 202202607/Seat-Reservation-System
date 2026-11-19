@@ -35,7 +35,7 @@ class SignupServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SignupService(repository, mail, encoder, ADMIN_CODE);
+        service = new SignupService(repository, mail, encoder, ADMIN_CODE, "o.cnu.ac.kr");
     }
 
     private static SignupService.SignupRequest student(String studentid, String email, String password) {
@@ -52,7 +52,7 @@ class SignupServiceTest {
 
     @Test
     void studentSignupIsPendingStudentWithBcryptHashAndSendsMail() {
-        var result = service.signup(student("202404510", "Student@Univ.ac.kr", GOOD_PASSWORD));
+        var result = service.signup(student("202404510", "Student@O.CNU.ac.kr", GOOD_PASSWORD));
 
         ArgumentCaptor<Member> saved = ArgumentCaptor.forClass(Member.class);
         verify(repository).saveAndFlush(saved.capture());
@@ -60,7 +60,7 @@ class SignupServiceTest {
         assertThat(result).isEqualTo(SignupService.Result.STUDENT_PENDING);
         assertThat(member.getStatus()).isEqualTo("PENDING");
         assertThat(member.getRole()).isEqualTo("ROLE_STUDENT");
-        assertThat(member.getEmail()).isEqualTo("student@univ.ac.kr"); // 대문자 이메일도 소문자로 받아 준다
+        assertThat(member.getEmail()).isEqualTo("student@o.cnu.ac.kr"); // 대문자 이메일도 소문자로 받아 준다
         assertThat(member.getPasswordHash()).isNotEqualTo(GOOD_PASSWORD).startsWith("$2");
         assertThat(encoder.matches(GOOD_PASSWORD, member.getPasswordHash())).isTrue();
         verify(mail).sendVerificationEmail(member);
@@ -89,7 +89,7 @@ class SignupServiceTest {
 
     @Test
     void adminSignupIsClosedWhenNoCodeConfigured() {
-        SignupService closed = new SignupService(repository, mail, encoder, "");
+        SignupService closed = new SignupService(repository, mail, encoder, "", "o.cnu.ac.kr");
         assertThatThrownBy(() -> closed.signup(admin("libadmin", "anything")))
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.FORBIDDEN));
     }
@@ -97,7 +97,7 @@ class SignupServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"abc12!", "abcdefgh!", "12345678!", "abcd12345", ""})
     void rejectsWeakPasswords(String password) {
-        assertThatThrownBy(() -> service.signup(student("202404510", "s@univ.ac.kr", password)))
+        assertThatThrownBy(() -> service.signup(student("202404510", "s@o.cnu.ac.kr", password)))
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.BAD_REQUEST));
         verify(repository, never()).saveAndFlush(any());
     }
@@ -105,26 +105,26 @@ class SignupServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"abcd1234?", "abcd1234_", "abcd1234.", "abcd1234~"})
     void acceptsAnySpecialCharacter(String password) {
-        service.signup(student("202404510", "s@univ.ac.kr", password));
+        service.signup(student("202404510", "s@o.cnu.ac.kr", password));
         verify(repository).saveAndFlush(any());
     }
 
     @Test
     void wrongStudentIdExplainsStudentIdNotName() {
-        assertThatThrownBy(() -> service.signup(student("12345", "s@univ.ac.kr", GOOD_PASSWORD)))
+        assertThatThrownBy(() -> service.signup(student("12345", "s@o.cnu.ac.kr", GOOD_PASSWORD)))
                 .hasMessageContaining("학번");
     }
 
     @Test
     void rejectsAlreadyRegisteredEmailOrStudentId() {
-        when(repository.existsByEmail("s@univ.ac.kr")).thenReturn(true);
-        assertThatThrownBy(() -> service.signup(student("202404510", "s@univ.ac.kr", GOOD_PASSWORD)))
+        when(repository.existsByEmail("s@o.cnu.ac.kr")).thenReturn(true);
+        assertThatThrownBy(() -> service.signup(student("202404510", "s@o.cnu.ac.kr", GOOD_PASSWORD)))
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.CONFLICT))
                 .hasMessageContaining("이메일");
 
-        when(repository.existsByEmail("t@univ.ac.kr")).thenReturn(false);
+        when(repository.existsByEmail("t@o.cnu.ac.kr")).thenReturn(false);
         when(repository.existsByStudentid("202404510")).thenReturn(true);
-        assertThatThrownBy(() -> service.signup(student("202404510", "t@univ.ac.kr", GOOD_PASSWORD)))
+        assertThatThrownBy(() -> service.signup(student("202404510", "t@o.cnu.ac.kr", GOOD_PASSWORD)))
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.CONFLICT))
                 .hasMessageContaining("학번");
     }
@@ -132,15 +132,25 @@ class SignupServiceTest {
     @Test
     void concurrentDuplicateSignupIsConflictNotServerError() {
         when(repository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("unique"));
-        assertThatThrownBy(() -> service.signup(student("202404510", "s@univ.ac.kr", GOOD_PASSWORD)))
+        assertThatThrownBy(() -> service.signup(student("202404510", "s@o.cnu.ac.kr", GOOD_PASSWORD)))
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.CONFLICT));
     }
 
     @Test
     void mailFailureAbortsSignupSoTransactionRollsBack() {
         doThrow(new MailSendException("smtp down")).when(mail).sendVerificationEmail(any());
-        assertThatThrownBy(() -> service.signup(student("202404510", "s@univ.ac.kr", GOOD_PASSWORD)))
+        assertThatThrownBy(() -> service.signup(student("202404510", "s@o.cnu.ac.kr", GOOD_PASSWORD)))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
+    /** US-01: 학생은 학교 이메일(@o.cnu.ac.kr)로만 가입한다. 관리자 가입에는 적용하지 않는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"student@gmail.com", "student@cnu.ac.kr", "student@o.cnu.ac.kr.evil.com", "student@xo.cnu.ac.kr"})
+    void studentMustUseSchoolEmailDomain(String email) {
+        assertThatThrownBy(() -> service.signup(student("202404510", email, GOOD_PASSWORD)))
+                .satisfies(e -> assertThat(statusOf(e)).isEqualTo(HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("@o.cnu.ac.kr");
+        verify(repository, never()).saveAndFlush(any());
     }
 }
