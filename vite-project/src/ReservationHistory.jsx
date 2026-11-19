@@ -3,12 +3,12 @@ import { apiFetch } from './auth';
 import './ReservationHistory.css';
 
 const STATUS_LABELS = {
-  RESERVED: '예약 예정', ONGOING: '이용 시간 중 · 체크인 미확인',
+  RESERVED: '예약 예정', CHECKIN_WAIT: '체크인 대기', ONGOING: '이용 시간 중 · 체크인 미확인',
   PAST: '지난 예약 · 체크인 미확인', CHECKED_IN: '체크인 완료',
   CANCELLED: '취소', AUTO_CANCELLED: '자동 취소',
 };
 const STATUS_CLASS = {
-  RESERVED: 'reserved', ONGOING: 'in-use', PAST: 'completed', CHECKED_IN: 'completed',
+  RESERVED: 'reserved', CHECKIN_WAIT: 'reserved', ONGOING: 'in-use', PAST: 'completed', CHECKED_IN: 'completed',
   CANCELLED: 'cancelled', AUTO_CANCELLED: 'cancelled',
 };
 
@@ -52,10 +52,12 @@ export default function ReservationHistory({ headerActions }) {
 
   const reservations = useMemo(() => items.map(item => {
     const start = Date.parse(item.starts_at), end = Date.parse(item.ends_at);
+    // 시작 후 체크인 제한 시간(서버가 cancel_until 로 알려 줌)까지는 '체크인 대기'이고 취소할 수 있다 (US-09 AC1).
+    const cancelUntil = item.cancel_until ? Date.parse(item.cancel_until) : start;
     const displayStatus = item.status === 'RESERVED'
-      ? end <= now ? 'PAST' : start <= now ? 'ONGOING' : 'RESERVED'
+      ? end <= now ? 'PAST' : start > now ? 'RESERVED' : cancelUntil > now ? 'CHECKIN_WAIT' : 'ONGOING'
       : item.status;
-    return { ...item, displayStatus, can_cancel: item.can_cancel && start > now };
+    return { ...item, displayStatus, can_cancel: item.can_cancel && cancelUntil > now };
   }), [items, now]);
 
   const filtered = useMemo(() => reservations
@@ -130,7 +132,7 @@ export default function ReservationHistory({ headerActions }) {
               </div>
             </article>)}
           </div>}
-          <p className="rh-policy">예약 취소는 이용 시작 전까지 가능합니다. 정렬은 예약한 이용 날짜와 시간을 기준으로 합니다.</p>
+          <p className="rh-policy">예약 취소는 체크인 전, 이용 시작 후 체크인 제한 시간까지 가능합니다. 정렬은 예약한 이용 날짜와 시간을 기준으로 합니다.</p>
         </section>
       </main>
     </div>

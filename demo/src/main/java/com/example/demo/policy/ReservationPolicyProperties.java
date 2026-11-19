@@ -14,7 +14,9 @@ public record ReservationPolicyProperties(
         @DefaultValue("4") int maxReservationHours,
         @DefaultValue("09:00") LocalTime openTime,
         @DefaultValue("22:00") LocalTime closeTime,
-        @DefaultValue("30") int slotMinutes) {
+        @DefaultValue("30") int slotMinutes,
+        /** 체크인 제한 시간(분). 예약 시작 후 이 시간까지가 '체크인 대기' 구간이다 (US-08, US-09, 설계서 p.10). */
+        @DefaultValue("15") int checkInMinutes) {
 
     public ReservationPolicy toPolicy() {
         return new ReservationPolicy(maxAdvanceDays, maxReservationHours, openTime, closeTime, slotMinutes);

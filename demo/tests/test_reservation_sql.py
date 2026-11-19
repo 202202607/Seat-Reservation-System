@@ -3,6 +3,7 @@
 This checks the predicates and data effects, not Oracle/JDBC or the HTTP stack.
 """
 
+import datetime
 import pathlib
 import re
 import sqlite3
@@ -39,8 +40,10 @@ class ReservationSqlTest(unittest.TestCase):
         self.cancel_sql = sql_in("int cancelIfAllowed")
 
     def cancel(self, reservation_id, user=7, at=None):
+        # 서비스는 startedAfter = 지금 - 체크인 제한 시간(15분)을 넘긴다 (US-09 '체크인 대기' 취소 허용).
         at = at or self.now
-        return self.db.execute(self.cancel_sql, (at, reservation_id, user, at)).rowcount
+        started_after = (datetime.datetime.fromisoformat(at) - datetime.timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+        return self.db.execute(self.cancel_sql, (at, reservation_id, user, started_after)).rowcount
 
     def test_history_is_owned_sorted_and_includes_past_cancelled(self):
         rows = self.db.execute(sql_in("List<ReservationHistoryItem> findHistory"), (7,)).fetchall()
@@ -57,12 +60,13 @@ class ReservationSqlTest(unittest.TestCase):
         self.assertEqual(self.cancel(2), 0)
         self.assertEqual(self.cancel(3), 0)
         self.assertEqual(self.cancel(4), 0)
-        self.assertEqual(self.cancel(1, at="2026-11-18 11:00:00"), 0)
-        self.assertEqual(self.cancel(1, at="2026-11-18 11:00:01"), 0)
-        self.assertEqual(self.cancel(1, at="2026-11-18 10:59:59"), 1)
+        # 11:00 시작 예약: 11:15(시작 + 15분)부터는 취소 불가, 11:14:59(체크인 대기 중)는 취소 가능
+        self.assertEqual(self.cancel(1, at="2026-11-18 11:15:00"), 0)
+        self.assertEqual(self.cancel(1, at="2026-11-18 11:15:01"), 0)
+        self.assertEqual(self.cancel(1, at="2026-11-18 11:14:59"), 1)
         self.assertEqual(self.cancel(1), 0)
         status, at, by = self.db.execute("SELECT status, cancelled_at, cancelled_by FROM reservations WHERE reservation_id=1").fetchone()
-        self.assertEqual((status, at, by), ("CANCELLED", "2026-11-18 10:59:59", "STUDENT"))
+        self.assertEqual((status, at, by), ("CANCELLED", "2026-11-18 11:14:59", "STUDENT"))
         self.assertEqual(self.db.execute("SELECT no_show_count FROM app_members WHERE id=7").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM reservations WHERE seat_id=5 AND status IN ('RESERVED','CHECKED_IN') AND start_time < ? AND end_time > ?", ("2026-11-18 12:00:00", "2026-11-18 11:00:00")).fetchone()[0], 0)
 
