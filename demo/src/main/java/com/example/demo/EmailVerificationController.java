@@ -26,7 +26,6 @@ public class EmailVerificationController {
         return "이메일 인증이 완료되었습니다. 이제 로그인할 수 있습니다.";
     }
 
-    /** 설계서 p.10 경로는 POST /api/auth/email/send 이다. 기존 경로도 함께 받는다. */
     @PostMapping({"/email/send", "/resend-verification"})
     public Map<String, String> resend(@RequestBody ResendRequest request) {
         verificationService.resendVerificationEmail(request.email());

@@ -44,7 +44,7 @@ public class SecurityConfig {
                 // 관리자 전용 (US-03, US-12~18)
                 .requestMatchers("/api/admin/**").hasRole(ADMIN)
                 // 학생 전용: 예약 생성(US-05), 내 예약 조회·취소(US-06, US-09), 이후 QR·체크인(US-08)
-                .requestMatchers("/api/reservations", "/api/reservations/**", "/api/check-ins").hasRole(STUDENT)
+                .requestMatchers("/api/reservations", "/api/reservations/**").hasRole(STUDENT)
                 // 좌석 조회·실시간 스트림(US-04)은 학생·관리자 모두 → 로그인만 확인
                 .anyRequest().authenticated())
             .oauth2ResourceServer(resource -> resource

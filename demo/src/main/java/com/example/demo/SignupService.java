@@ -14,12 +14,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * 회원가입 규칙 (US-01). 컨트롤러는 요청·응답 변환만 한다.
- * <ul>
- *   <li>학생: 학교 이메일(@o.cnu.ac.kr)만 허용. PENDING + ROLE_STUDENT 로 저장하고 인증 링크 메일 발송 (AC1). 인증하면 ACTIVE (AC4).</li>
- *   <li>관리자: 관리자 가입 코드가 맞으면 ACTIVE + ROLE_ADMIN 으로 저장 (AC5, 설계서 p.4 Core Flow 1).</li>
- *   <li>비밀번호는 8자 이상·영문·숫자·특수문자 포함 (AC2), BCrypt 해시로 저장 (AC5).</li>
- * </ul>
+ * 학생: 학교 이메일(@o.cnu.ac.kr)만 허용. PENDING + ROLE_STUDENT 로 저장하고 인증 링크 메일 발송 (AC1). 인증하면 ACTIVE (AC4).</li>
+ * 관리자: 관리자 가입 코드가 맞으면 ACTIVE + ROLE_ADMIN 으로 저장 (AC5, 설계서 p.4 Core Flow 1).</li>
+ * 비밀번호는 8자 이상·영문·숫자·특수문자 포함 (AC2), BCrypt 해시로 저장 (AC5).</li>
  */
+
 @Service
 public class SignupService {
     /** 학번: 숫자 9자리. */

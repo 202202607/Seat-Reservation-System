@@ -83,14 +83,14 @@ export default function Signup({ onGoToLogin}) {
       <form onSubmit={handleSignup}>
         <h1>{isAdmin ? '관리자 회원가입' : '회원가입'}</h1>
 
-        <label>
+        <label className="admin-checkbox">
+          관리자로 가입
           <input
             type="checkbox"
             checked={isAdmin}
             disabled={signupCompleted}
             onChange={(e) => { setIsAdmin(e.target.checked); setMessage(''); setShowResend(false); }}
           />
-          관리자로 가입
         </label>
 
         <input
