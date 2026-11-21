@@ -74,6 +74,7 @@ body { margin: 0; display: block; min-width: 320px; }
 .library-dot.is-available { background: #4bb29a; }
 .library-dot.is-reserved { background: #dc8b88; }
 .library-dot.is-mine { background: #709de6; }
+.library-dot.is-in-use { background: #8a8f99; }
 .library-room { background: #f8fafc; border: 1px dashed #dce5ee; border-radius: 17px; padding: 28px 23px 21px; }
 .library-room-label { font-size: 11px; color: #a1adbc; text-align: center; letter-spacing: 2px; font-weight: 700; margin-bottom: 24px; }
 .library-seat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 15px; }
@@ -89,6 +90,7 @@ body { margin: 0; display: block; min-width: 320px; }
 .library-seat-desk { display: block; width: 25px; height: 7px; border-radius: 3px 3px 1px 1px; background: currentColor; opacity: .35; margin-bottom: 5px; }
 .library-seat.is-reserved { color: #a85d60; background: #fbecec; border-color: #f0d6d6; cursor: not-allowed; opacity: .9; }
 .library-seat.is-mine { color: #3868ad; background: #e6effd; border-color: #c9d9f6; }
+.library-seat.is-in-use { color: #5c6270; background: #eceef1; border-color: #d6d9de; cursor: not-allowed; opacity: .9; }
 .library-seat.is-selected { color: #fff; background: #247c6c; border: 2px solid #126653; box-shadow: 0 0 0 3px rgba(50, 160, 133, .15); }
 .library-entrance { margin: 25px auto 0; width: 132px; padding-top: 11px; border-top: 3px solid #a5b2c3; text-align: center; color: #8695a7; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
 .library-seat-stats { margin-top: 22px; padding: 16px 4px; display: flex; justify-content: space-around; gap: 7px; border-bottom: 1px solid var(--line); }

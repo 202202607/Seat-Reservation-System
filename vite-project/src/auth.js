@@ -28,6 +28,7 @@ async function authPost(path, body) {
   }
   return data;
 }
+
 export async function login(studentid, password) {
   const current = generation;
   const data = await authPost('login', { studentid, password });

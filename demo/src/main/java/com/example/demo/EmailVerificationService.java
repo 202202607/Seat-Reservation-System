@@ -47,6 +47,24 @@ public class EmailVerificationService {
     }
 
     @Transactional
+    public void resendVerificationEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return;
+        }
+        // 가입 시 이메일을 소문자로 저장하므로 같은 방식으로 찾는다.
+        Member member = memberRepository.findByEmail(email.trim().toLowerCase(java.util.Locale.ROOT)).orElse(null);
+        // 존재하지 않거나 이미 인증된 회원이면 발송하지 않음
+        if (member == null || !"PENDING".equals(member.getStatus())) {
+                return;
+        }
+        // 새로운 토큰 발급 및 만료시간 30분 갱신
+        member.issueVerificationToken();
+        memberRepository.save(member);
+        // 기존 메일 발송 함수 재사용
+        sendVerificationEmail(member);
+    }
+
+    @Transactional
     public void verify(String token) {
         Member member = memberRepository
                 .findByVerificationToken(token)
@@ -61,7 +79,6 @@ public class EmailVerificationService {
                     "인증 링크가 만료되었습니다."
             );
         }
-
         member.activate();
     }
 }

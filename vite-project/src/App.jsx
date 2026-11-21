@@ -41,14 +41,19 @@ export default function App() {
     }
   }
 
+  // US-02 AC4: 역할에 맞는 메뉴만 보여 준다. 서버도 같은 규칙으로 거부한다.
+  const isAdmin = session?.user?.role === 'ROLE_ADMIN';
+
   const headerActions = (
     <nav className="auth-nav" aria-label="회원 메뉴">
       {session ? (
         <>
-          <span>{session.user.name} ({session.user.studentid})</span>
-          <button type="button" onClick={() => setPage(value => value === 'history' ? 'seats' : 'history')}>
-            {page === 'history' ? '좌석 예약' : '내 예약 이력'}
-          </button>
+          <span>{session.user.name} ({session.user.studentid}){isAdmin ? ' · 관리자' : ''}</span>
+          {!isAdmin && (
+            <button type="button" onClick={() => setPage(value => value === 'history' ? 'seats' : 'history')}>
+              {page === 'history' ? '좌석 예약' : '내 예약 이력'}
+            </button>
+          )}
           <button type="button" disabled={loggingOut} onClick={handleLogout}>로그아웃</button>
         </>
       ) : (
@@ -69,7 +74,7 @@ export default function App() {
         <Signup onGoToLogin={() => setAuthPage('login')} />
       )}
 
-      {session && page === 'history' ? (
+      {session && !isAdmin && page === 'history' ? (
         <ReservationHistory key={session.user.id} headerActions={headerActions} />
       ) : (
         <SeatReservation

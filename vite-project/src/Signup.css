@@ -24,7 +24,10 @@
 }
 
 .signup h1 {
+  font-size: 25px;
   text-align: center;
+  margin-top: 12px;
+  margin-bottom: 36px;
 }
 
 .signup input {
@@ -44,4 +47,19 @@
   border: none;
   border-radius: 5px;
   cursor: pointer;
+  margin-top: 12px;
+}
+
+.admin-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.admin-checkbox input {
+  width: auto;
+  margin: 0;
 }

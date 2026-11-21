@@ -30,10 +30,13 @@ public class JwtService {
                 new JwtTimestampValidator(Duration.ZERO), new JwtIssuerValidator(ISSUER)));
     }
 
-    public String issue(long memberId, String sessionId, String type, Instant now, Instant expiresAt) {
+    /** 역할 클레임 이름. 값은 ROLE_STUDENT 또는 ROLE_ADMIN (US-02 AC4). */
+    public static final String ROLE_CLAIM = "role";
+
+    public String issue(long memberId, String role, String sessionId, String type, Instant now, Instant expiresAt) {
         var claims = JwtClaimsSet.builder().issuer(ISSUER).subject(Long.toString(memberId))
                 .issuedAt(now).expiresAt(expiresAt).id(UUID.randomUUID().toString())
-                .claim("sid", sessionId).claim("token_type", type).build();
+                .claim("sid", sessionId).claim("token_type", type).claim(ROLE_CLAIM, role).build();
         return encoder.encode(JwtEncoderParameters.from(
                 JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }
